@@ -1,26 +1,57 @@
-import datetime
-import config
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+# This is a simple echo bot using decorators and webhook with aiohttp
+# It echoes any incoming text messages and does not use the polling method.
+
+import logging
+import ssl
+
+from aiohttp import web
+
 import telebot
-import cherrypy
-import telegram
-import requests
-import copy
-import Info
-from SQLighter import SQLighter
-from telebot import types
 
-WEBHOOK_HOST = '85.117.107.171'
-WEBHOOK_PORT = 443  # 443, 80, 88 или 8443 (порт должен быть открыт!)
-WEBHOOK_LISTEN = '0.0.0.0'  # На некоторых серверах придется указывать такой же IP, что и выше
 
-WEBHOOK_SSL_CERT = 'C:/OpenSSL-Win32/bin/webhook_cert.pem'  # Путь к сертификату
-WEBHOOK_SSL_PRIV = 'C:/OpenSSL-Win32/bin//webhook_pkey.pem'  # Путь к приватному ключу
+API_TOKEN = '510314816:AAFBBqMnwyn7vOB4kyHKvXjsx7hUvoxMWTo'
 
-WEBHOOK_URL_BASE = "https://%s:%s" % (WEBHOOK_HOST, WEBHOOK_PORT)
-WEBHOOK_URL_PATH = "/%s/" % (config.token)
+WEBHOOK_HOST = '<46.101.172.206'
+WEBHOOK_PORT = 8443  # 443, 80, 88 or 8443 (port need to be 'open')
+WEBHOOK_LISTEN = '0.0.0.0'  # In some VPS you may need to put here the IP addr
 
-bot = telebot.TeleBot(config.token)
-# Наш вебхук-сервер
+WEBHOOK_SSL_CERT = 'C:/OpenSSL-Win32/bin/webhook_cert.pem'  # Path to the ssl certificate
+WEBHOOK_SSL_PRIV = 'C:/OpenSSL-Win32/bin/webhook_pkey.pem'  # Path to the ssl private key
+
+# Quick'n'dirty SSL certificate generation:
+#
+# openssl genrsa -out webhook_pkey.pem 2048
+# openssl req -new -x509 -days 3650 -key webhook_pkey.pem -out webhook_cert.pem
+#
+# When asked for "Common Name (e.g. server FQDN or YOUR name)" you should reply
+# with the same value in you put in WEBHOOK_HOST
+
+WEBHOOK_URL_BASE = "https://{}:{}".format(WEBHOOK_HOST, WEBHOOK_PORT)
+WEBHOOK_URL_PATH = "/{}/".format(API_TOKEN)
+
+
+logger = telebot.logger
+telebot.logger.setLevel(logging.INFO)
+
+bot = telebot.TeleBot(API_TOKEN)
+
+app = web.Application()
+
+
+# Process webhook calls
+async def handle(request):
+    if request.match_info.get('token') == bot.token:
+        request_body_dict = await request.json()
+        update = telebot.types.Update.de_json(request_body_dict)
+        bot.process_new_updates([update])
+        return web.Response()
+    else:
+        return web.Response(status=403)
+
+app.router.add_post('/{token}/', handle)
 
 
 # Handle '/start' and '/help'
@@ -36,39 +67,22 @@ def send_welcome(message):
 def echo_message(message):
     bot.reply_to(message, message.text)
 
-class WebhookServer(object):
-    @cherrypy.expose
-    def index(self):
-        print("asdfasdfasf")
-        if 'content-length' in cherrypy.request.headers and \
-                        'content-type' in cherrypy.request.headers and \
-                        cherrypy.request.headers['content-type'] == 'application/json':
-            length = int(cherrypy.request.headers['content-length'])
-            json_string = cherrypy.request.body.read(length).decode("utf-8")
-            update = telebot.types.Update.de_json(json_string)
-            # Эта функция обеспечивает проверку входящего сообщения
-            bot.process_new_updates([update])
-            return ''
-        else:
-            raise cherrypy.HTTPError(403)
 
-# Снимаем вебхук перед повторной установкой (избавляет от некоторых проблем)
+# Remove webhook, it fails sometimes the set if there is a previous webhook
 bot.remove_webhook()
 
+# Set webhook
+bot.set_webhook(url=WEBHOOK_URL_BASE+WEBHOOK_URL_PATH,
+                certificate=open(WEBHOOK_SSL_CERT, 'r'))
 
+# Build ssl context
+context = ssl.SSLContext(ssl.PROTOCOL_TLSv1_2)
+context.load_cert_chain(WEBHOOK_SSL_CERT, WEBHOOK_SSL_PRIV)
 
-# Ставим заново вебхук
-bot.set_webhook(url=WEBHOOK_URL_BASE + WEBHOOK_URL_PATH,
-                        certificate=open(WEBHOOK_SSL_CERT, 'r'))
-
-# Указываем настройки сервера CherryPy
-cherrypy.config.update({
-    'server.socket_host': WEBHOOK_LISTEN,
-    'server.socket_port': WEBHOOK_PORT,
-    'server.ssl_module': 'builtin',
-    'server.ssl_certificate': WEBHOOK_SSL_CERT,
-    'server.ssl_private_key': WEBHOOK_SSL_PRIV
-})
-
-# Собственно, запуск!
-cherrypy.quickstart(WebhookServer(), WEBHOOK_URL_PATH, {'/': {}})
+# Start aiohttp server
+web.run_app(
+    app,
+    host=WEBHOOK_LISTEN,
+    port=WEBHOOK_PORT,
+    ssl_context=context,
+)

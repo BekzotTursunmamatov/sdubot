@@ -9,7 +9,7 @@ import Info
 from SQLighter import SQLighter
 from telebot import types
 
-WEBHOOK_HOST = '85.117.103.144'
+WEBHOOK_HOST = '46.101.172.206'
 WEBHOOK_PORT = 443  # 443, 80, 88 или 8443 (порт должен быть открыт!)
 WEBHOOK_LISTEN = '0.0.0.0'  # На некоторых серверах придется указывать такой же IP, что и выше
 
